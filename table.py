@@ -77,7 +77,7 @@ def store_in_mongodb(json):
     print('done')
 
 # URL of the website containing the table
-url = "https://www.seedtable.com/manufacturing-startups-germany"  # Replace this with the actual URL
+url = "https://www.seedtable.com/manufacturing-startups-germany"  
 
 # Scrape the table and display it
 companies, rows = scrape_table(url)
