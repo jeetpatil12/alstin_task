@@ -1,85 +1,86 @@
 import requests
 from bs4 import BeautifulSoup
 from pymongo import MongoClient
-import json
-import csv
 import pandas as pd
-
 
 # Function to scrape the data
 def scrape_table(url):
-    # Send a GET request to the webpage
-    response = requests.get(url)
-    
-    # Check if request was successful
-    if response.status_code != 200:
-        print(f"Failed to retrieve webpage. Status code: {response.status_code}")
-        return
-    
-    # Parse the HTML content
-    soup = BeautifulSoup(response.text, 'html.parser')
-    
-    # Find the table - you might need to inspect the HTML structure for the correct selector
-    table = soup.find('table')  # Adjust based on the actual structure of the page
+    try:
+        response = requests.get(url)
+        
+        if response.status_code != 200:
+            print(f"Failed to retrieve webpage. Status code: {response.status_code}")
+            return None, None
+        
+        soup = BeautifulSoup(response.text, 'html.parser')
+        table = soup.find('table')
+        if not table:
+            print("Table not found on the webpage.")
+            return None, None
 
-    # # Extracting the table headers
-    # headers = []
-    # for th in table.find_all('th', scope='col'):
-    #     headers.append(th.text.strip())
+        rows = []
+        company_names = []
+        for tr in table.find_all('tr')[1:]:
+            cells = tr.find_all('td')
+            company_name = tr.find('div', class_='text-base font-semibold truncate')
+            company_names.append(company_name.text.strip() if company_name else "N/A")
+            row = [cell.text.strip() if cell else "N/A" for cell in cells]
+            rows.append(row)
+        
+        return company_names, rows
+    except Exception as e:
+        print(f"An error occurred during scraping: {e}")
+        return None, None
 
-    # Extracting the table rows
-    rows = []
-    company_names= []
-    for tr in table.find_all('tr')[1:]:  # Skip the first header row
-        cells = tr.find_all('td')
-        company_name = tr.find('div', class_='text-base font-semibold truncate').text.strip()
-        company_names.append(company_name)
-        row = [cell.text.strip() for cell in cells]
-        rows.append(row)
-    
-    return company_names, rows
-
+# Generate JSON structure from scraped data
 def generate_companies_json(company_names, rows):
     company_json = []
-    for i in range(1, len(company_names) + 1):
-        company_json.append({
-            'name': company_names[i-1],
-            'score': rows[i-1][1],
-            'funding': rows[i-1][2],
-            'investors': rows[i-1][3],
-            'employees': rows[i-1][4],
-            'industries': rows[i-1][5],
-            'business_model': rows[i-1][6],
-            'location': rows[i-1][7],
-            'outsource': rows[i-1][8],
-            'contact': rows[i-1][9],
-        })
+    try:
+        for i in range(len(company_names)):
+            row = rows[i] if i < len(rows) else ["N/A"] * 10
+            company_json.append({
+                'name': company_names[i],
+                'score': row[1] if len(row) > 1 else "N/A",
+                'funding': row[2] if len(row) > 2 else "N/A",
+                'investors': row[3] if len(row) > 3 else "N/A",
+                'employees': row[4] if len(row) > 4 else "N/A",
+                'industries': row[5] if len(row) > 5 else "N/A",
+                'business_model': row[6] if len(row) > 6 else "N/A",
+                'location': row[7] if len(row) > 7 else "N/A",
+                'outsource': row[8] if len(row) > 8 else "N/A",
+                'contact': row[9] if len(row) > 9 else "N/A",
+            })
+    except IndexError as e:
+        print(f"An error occurred while generating JSON: {e}")
     return company_json
 
-def generate_csv(json):
-   # Convert the JSON data into a pandas DataFrame
-    df = pd.DataFrame(json)
+# Convert JSON data into CSV
+def generate_csv(json_data):
+    try:
+        df = pd.DataFrame(json_data)
+        df.to_csv('output.csv', index=False)
+        print("CSV file generated successfully.")
+    except Exception as e:
+        print(f"An error occurred while generating CSV: {e}")
 
-    # Generate CSV from the DataFrame
-    df.to_csv('output.csv', index=False)
+# Store data in MongoDB and then generate CSV
+def store_in_mongodb(json_data):
+    try:
+        client = MongoClient("mongodb+srv://admin:admin@cluster0.yj94m.mongodb.net/")
+        db = client['data']
+        collection = db['companies']
+        collection.insert_many(json_data)
+        client.close()
+        print("Data stored in MongoDB successfully.")
+        generate_csv(json_data)
+    except Exception as e:
+        print(f"An error occurred while connecting to MongoDB: {e}")
 
-    print("CSV file generated successfully.")
-
-def store_in_mongodb(json):
-    client = MongoClient("mongodb+srv://admin:admin@cluster0.yj94m.mongodb.net/")
-    db = client['data']
-    collection = db['companies']
-
-    collection.insert_many(json)
-    client.close()
-    generate_csv(json)
-
-    print('done')
-
-# URL of the website containing the table
+# URL of the website to scrape
 url = "https://www.seedtable.com/manufacturing-startups-germany"  
 
-# Scrape the table and display it
 companies, rows = scrape_table(url)
-data = generate_companies_json(companies, rows)
-store_in_mongodb(data)
+if companies and rows:
+    data = generate_companies_json(companies, rows)
+    if data:
+        store_in_mongodb(data)
